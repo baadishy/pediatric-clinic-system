@@ -1,0 +1,8 @@
+{
+  "name": "Pediatric Clinic desktop app",
+  "description": "نظام لإدارة عيادة أطفال وتسجيل بيانات المريض وتوليد روشتة وحساب الجرعات",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
