@@ -1,7 +1,6 @@
 import express from "express";
 import cors from "cors";
 import path from "path";
-import { createServer as createViteServer } from "vite";
 import Database from "better-sqlite3";
 import dotenv from "dotenv";
 import jwt from "jsonwebtoken";
@@ -1246,6 +1245,7 @@ app.get("/api/health-check", (req, res) => {
 
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
