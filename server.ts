@@ -1252,7 +1252,18 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), "dist");
+    let distPath = path.join(process.cwd(), "dist");
+    try {
+      const fs = require("fs");
+      if (fs.existsSync(path.join(__dirname, "index.html"))) {
+        distPath = __dirname;
+      } else if (fs.existsSync(path.join(__dirname, "../dist", "index.html"))) {
+        distPath = path.join(__dirname, "../dist");
+      }
+    } catch (e) {
+      console.error("Could not dynamically require fs for serving static files, falling back to process.cwd():", e);
+    }
+    console.log(`[production] serving static files from: ${distPath}`);
     app.use(express.static(distPath));
     app.get("*", (req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
