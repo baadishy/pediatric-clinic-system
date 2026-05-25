@@ -123,10 +123,10 @@ try {
   console.error("Non-fatal issue checking for Electron-specific .env paths:", envCheckErr);
 }
 
-const JWT_SECRET = process.env.JWT_SECRET || "pediatric_secret_777";
+const JWT_SECRET = (process.env.JWT_SECRET || "pediatric_secret_777").trim();
 
-const MONGODB_URI = process.env.MONGODB_URI;
-const useMongo = !!MONGODB_URI;
+const MONGODB_URI = process.env.MONGODB_URI ? process.env.MONGODB_URI.trim() : undefined;
+let useMongo = !!MONGODB_URI;
 
 const dbStatus = {
   type: "sqlite",
@@ -734,8 +734,8 @@ async function initDB() {
     // Seed users
     const userCount = await usersColl.countDocuments();
     if (userCount === 0) {
-      const doctorPass = await bcrypt.hash(process.env.DOCTOR_PASSWORD || "doctor123", 10);
-      const assistantPass = await bcrypt.hash(process.env.ASSISTANT_PASSWORD || "assistant123", 10);
+      const doctorPass = await bcrypt.hash((process.env.DOCTOR_PASSWORD || "doctor123").trim(), 10);
+      const assistantPass = await bcrypt.hash((process.env.ASSISTANT_PASSWORD || "assistant123").trim(), 10);
       
       await usersColl.insertMany([
         { username: "doctor", password: doctorPass, role: "doctor", name: "Dr. Mina" },
@@ -770,12 +770,21 @@ async function initDB() {
 
   } catch (error) {
     console.error("Database initialization failed:", error);
-    dbStatus.error = error instanceof Error ? error.message : String(error);
+    let errMsg = "Unknown database error";
+    if (error instanceof Error) {
+      errMsg = `${error.name}: ${error.message}`;
+    } else if (typeof error === 'object' && error !== null) {
+      errMsg = (error as any).message || (error as any).errmsg || JSON.stringify(error);
+    } else {
+      errMsg = String(error);
+    }
+    dbStatus.error = errMsg;
     dbStatus.connected = false;
     dbStatus.type = "sqlite";
     if (useMongo) {
       console.log("Attempting automatic fallback to SQLite due to Atlas connection error...");
       mongoDb = null; // unset mongoDb to force SQLite collections
+      useMongo = false; // Disable mongo to prevent infinite loop!
       await initDB(); // re-initialize SQLite DB safely
     }
   }
