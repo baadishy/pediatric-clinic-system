@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import path from "path";
 import fs from "fs";
+import Database from "better-sqlite3";
 import dotenv from "dotenv";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
@@ -118,169 +119,13 @@ class ObjectId {
   }
 }
 
-class JSONDatabase {
-  private filepath: string;
-  private data: any = {};
-
-  constructor(originalPath: string) {
-    this.filepath = originalPath.endsWith(".sqlite")
-      ? originalPath.replace(/\.sqlite$/, ".json")
-      : originalPath + ".json";
-    this.load();
-  }
-
-  private load() {
-    try {
-      if (fs.existsSync(this.filepath)) {
-        const raw = fs.readFileSync(this.filepath, "utf8");
-        this.data = JSON.parse(raw);
-      } else {
-        this.data = {};
-      }
-    } catch (e) {
-      console.error("Failed to load JSON fallback database:", e);
-      this.data = {};
-    }
-  }
-
-  private save() {
-    try {
-      const dir = path.dirname(this.filepath);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-      }
-      fs.writeFileSync(this.filepath, JSON.stringify(this.data, null, 2), "utf8");
-    } catch (e) {
-      console.error("Failed to save JSON fallback database:", e);
-    }
-  }
-
-  prepare(sql: string) {
-    const dbInstance = this;
-    const cleanSql = sql.replace(/\s+/g, " ").trim();
-
-    // 1. CREATE TABLE IF NOT EXISTS [tableName]
-    let match = cleanSql.match(/CREATE TABLE\s+(?:IF NOT EXISTS\s+)?\[?(\w+)\]?/i);
-    if (match) {
-      const tableName = match[1];
-      return {
-        run() {
-          if (!dbInstance.data[tableName]) {
-            dbInstance.data[tableName] = {};
-            dbInstance.save();
-          }
-          return { changes: 0 };
-        }
-      };
-    }
-
-    // 2. SELECT * FROM [tableName]
-    match = cleanSql.match(/SELECT\s+\*\s+FROM\s+\[?(\w+)\]?/i);
-    if (match) {
-      const tableName = match[1];
-      return {
-        all() {
-          const table = dbInstance.data[tableName] || {};
-          return Object.values(table).map((valStr: any) => ({
-            _id: JSON.parse(valStr)._id,
-            data: valStr
-          }));
-        }
-      };
-    }
-
-    // 3. DELETE FROM [tableName] WHERE _id = ?
-    match = cleanSql.match(/DELETE\s+FROM\s+\[?(\w+)\]?\s+WHERE\s+_id\s+=\s+\?/i);
-    if (match) {
-      const tableName = match[1];
-      return {
-        run(id: string) {
-          if (dbInstance.data[tableName] && dbInstance.data[tableName][id]) {
-            delete dbInstance.data[tableName][id];
-            dbInstance.save();
-            return { changes: 1 };
-          }
-          return { changes: 0 };
-        }
-      };
-    }
-
-    // 4. INSERT INTO [tableName] (_id, data) VALUES (?, ?) ON CONFLICT(_id) DO UPDATE SET data = excluded.data
-    // Or INSERT OR REPLACE INTO [tableName] (_id, data) VALUES (?, ?)
-    match = cleanSql.match(/(?:INSERT INTO|INSERT OR REPLACE INTO)\s+\[?(\w+)\]?/i);
-    if (match) {
-      const tableName = match[1];
-      return {
-        run(id: string, dataStr: string) {
-          if (!dbInstance.data[tableName]) {
-            dbInstance.data[tableName] = {};
-          }
-          dbInstance.data[tableName][id] = dataStr;
-          dbInstance.save();
-          return { changes: 1 };
-        }
-      };
-    }
-
-    // 5. UPDATE [tableName] SET data = ? WHERE _id = ?
-    match = cleanSql.match(/UPDATE\s+\[?(\w+)\]?\s+SET\s+data\s+=\s+\?\s+WHERE\s+_id\s+=\s+\?/i);
-    if (match) {
-      const tableName = match[1];
-      return {
-        run(dataStr: string, id: string) {
-          if (!dbInstance.data[tableName]) {
-            dbInstance.data[tableName] = {};
-          }
-          dbInstance.data[tableName][id] = dataStr;
-          dbInstance.save();
-          return { changes: 1 };
-        }
-      };
-    }
-
-    // 6. SELECT name FROM sqlite_master WHERE type='table' AND name=?
-    if (cleanSql.includes("sqlite_master")) {
-      return {
-        get(name: string) {
-          if (dbInstance.data[name]) {
-            return { name };
-          }
-          return null;
-        }
-      };
-    }
-
-    // 7. DROP TABLE IF EXISTS [tableName]
-    match = cleanSql.match(/DROP TABLE\s+(?:IF EXISTS\s+)?\[?(\w+)\]?/i);
-    if (match) {
-      const tableName = match[1];
-      return {
-        run() {
-          if (dbInstance.data[tableName]) {
-            delete dbInstance.data[tableName];
-            dbInstance.save();
-          }
-          return { changes: 1 };
-        }
-      };
-    }
-
-    // Catch-all mock
-    return {
-      run() { return { changes: 0 }; },
-      get() { return null; },
-      all() { return []; }
-    };
-  }
-}
-
 const dbName = "clinic.sqlite";
 const dbDir = process.env.APPDATA || 
               (process.platform === 'darwin' ? path.join(process.env.HOME || '', 'Library/Application Support') : process.env.HOME) || 
               process.cwd();
 // Create writable path safely
 const dbPath = path.join(dbDir, dbName);
-let sqliteDb: any;
+const sqliteDb = new Database(dbPath);
 
 function matchesQuery(doc: any, query: any): boolean {
   if (!query || Object.keys(query).length === 0) return true;
@@ -741,19 +586,6 @@ const db = {
 import { ALL_MEDICATIONS } from "./drug_data";
 
 async function initDB() {
-  if (!sqliteDb) {
-    try {
-      console.log("Dynamically loading better-sqlite3 module...");
-      const betterSqliteModule = await import("better-sqlite3");
-      const SqliteDatabase = betterSqliteModule.default || betterSqliteModule;
-      sqliteDb = new SqliteDatabase(dbPath);
-      console.log("Successfully initialized SQLite database using better-sqlite3!");
-    } catch (err) {
-      console.warn("better-sqlite3 native addon failed to load, falling back to JSONDatabase engine:", err);
-      sqliteDb = new JSONDatabase(dbPath);
-    }
-  }
-
   try {
     if (useMongo && mongoClient) {
       console.log("Connecting to MongoDB Atlas...");
