@@ -70,14 +70,16 @@ export default function GrowthCharts({ lang = 'ar' }: { lang?: Language }) {
         
         if (patient.birth_date) {
           const birth = new Date(patient.birth_date);
-          const now = new Date();
-          let y = now.getFullYear() - birth.getFullYear();
-          let m = now.getMonth() - birth.getMonth();
-          let d = now.getDate() - birth.getDate();
-          if (d < 0) { m--; d += 30; }
-          if (m < 0) { y--; m += 12; }
-          total = (y * 12) + m;
-          days = d;
+          if (!isNaN(birth.getTime())) {
+            const now = new Date();
+            let y = now.getFullYear() - birth.getFullYear();
+            let m = now.getMonth() - birth.getMonth();
+            let d = now.getDate() - birth.getDate();
+            if (d < 0) { m--; d += 30; }
+            if (m < 0) { y--; m += 12; }
+            total = (y * 12) + m;
+            days = d;
+          }
         }
 
         setFormData(prev => ({ 
@@ -192,7 +194,9 @@ export default function GrowthCharts({ lang = 'ar' }: { lang?: Language }) {
     const ageA = a.age_months;
     const ageB = b.age_months;
     if (ageA !== ageB) return ageB - ageA;
-    return new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime();
+    const timeA = a.createdAt && !isNaN(new Date(a.createdAt).getTime()) ? new Date(a.createdAt).getTime() : 0;
+    const timeB = b.createdAt && !isNaN(new Date(b.createdAt).getTime()) ? new Date(b.createdAt).getTime() : 0;
+    return timeB - timeA;
   });
 
   return (
@@ -426,7 +430,11 @@ export default function GrowthCharts({ lang = 'ar' }: { lang?: Language }) {
                                   {formatAgeShort(act.age_months, (act as any).age_days || 0)}
                                 </span>
                                 <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                                  {new Date(act.createdAt!).toLocaleDateString(lang === 'ar' ? 'ar-EG' : 'en-US')} - {new Date(act.createdAt!).toLocaleTimeString(lang === 'ar' ? 'ar-EG' : 'en-US', { hour: '2-digit', minute: '2-digit' })}
+                                  {act.createdAt && !isNaN(new Date(act.createdAt).getTime()) ? (
+                                    <>
+                                      {new Date(act.createdAt).toLocaleDateString(lang === 'ar' ? 'ar-EG' : 'en-US')} - {new Date(act.createdAt).toLocaleTimeString(lang === 'ar' ? 'ar-EG' : 'en-US', { hour: '2-digit', minute: '2-digit' })}
+                                    </>
+                                  ) : '---'}
                                 </span>
                               </div>
                               <div className="mt-1">
@@ -498,7 +506,10 @@ function GrowthChartCard({ title, data, dataKey, yLabel, color, lang, gender, re
   // Create a combined data set with reference values
   const sortedPatientData = [...data].map((d: any) => {
     // Add time precision (hours/mins/secs) to ensure multiple measurements on same day are unique points
-    const date = d.createdAt ? new Date(d.createdAt) : new Date();
+    let date = d.createdAt ? new Date(d.createdAt) : new Date();
+    if (isNaN(date.getTime())) {
+      date = new Date();
+    }
     const timeOffset = (date.getHours() / 24 + date.getMinutes() / 1440 + date.getSeconds() / 86400) / 30; // fractional day within the month
     
     return {

@@ -26,6 +26,8 @@ import { ar, enUS } from 'date-fns/locale';
 import { motion } from 'motion/react';
 import { QRCodeCanvas } from 'qrcode.react';
 import { translations, Language } from '../lib/translations';
+import ExportDropdown from './ExportDropdown';
+import { ExportPayload } from '../lib/exportUtils';
 
 const FACEBOOK_URL = "https://www.facebook.com/DrMinaPediatricClinic/";
 
@@ -124,6 +126,14 @@ export default function PrescriptionPrinter({ prescriptionId, lang = 'ar' }: { p
   });
 
   const [showDesignGuide, setShowDesignGuide] = useState<boolean>(true);
+  const [printBgImage, setPrintBgImage] = useState<boolean>(() => {
+    return localStorage.getItem('prescription_print_bg_image') !== 'false';
+  });
+
+  const handlePrintBgImageChange = (checked: boolean) => {
+    setPrintBgImage(checked);
+    localStorage.setItem('prescription_print_bg_image', String(checked));
+  };
 
   // Auto-fetch data
   useEffect(() => {
@@ -218,6 +228,66 @@ export default function PrescriptionPrinter({ prescriptionId, lang = 'ar' }: { p
 
   const handlePrint = () => {
     window.print();
+  };
+
+  const getPrescriptionExportPayload = (): ExportPayload => {
+    if (!data) {
+      throw new Error("No prescription loaded yet");
+    }
+
+    const patientProfile = [
+      { label: lang === 'ar' ? 'اسم المريض' : 'Patient Name', value: data.patient_name || '' },
+      { label: lang === 'ar' ? 'العمر' : 'Age', value: `${data.age_months || 0} ${lang === 'ar' ? 'شهور' : 'months'} ${data.age_days ? `& ${data.age_days} ${lang === 'ar' ? 'أيام' : 'days'}` : ''}` },
+      { label: lang === 'ar' ? 'تاريخ الكشف' : 'Date', value: data.createdAt ? new Date(data.createdAt).toLocaleDateString(lang === 'ar' ? 'ar-EG' : 'en-US') : '' },
+      { label: lang === 'ar' ? 'الوزن' : 'Weight', value: data.weight ? `${data.weight} ${lang === 'ar' ? 'كجم' : 'kg'}` : '-' }
+    ];
+
+    if (data.temperature) {
+      patientProfile.push({ label: lang === 'ar' ? 'درجة الحرارة' : 'Temperature', value: `${data.temperature} °C` });
+    }
+    if (data.height) {
+      patientProfile.push({ label: lang === 'ar' ? 'الطول' : 'Height', value: `${data.height} ${lang === 'ar' ? 'سم' : 'cm'}` });
+    }
+
+    const headers = [
+      lang === 'ar' ? 'اسم العلاج / الدواء' : 'Medication Name',
+      lang === 'ar' ? 'الجرعة المحددة' : 'Dosage Instruction',
+      lang === 'ar' ? 'عدد المرات باليوم' : 'Doses Per Day',
+      lang === 'ar' ? 'المدة (يوم)' : 'Duration (Days)',
+      lang === 'ar' ? 'بدائل وتوجيهات خاصة' : 'Notes & Instructions'
+    ];
+
+    const rows = data.items ? data.items.map((item: any) => [
+      item.medication_name || '',
+      item.dose_description || '',
+      item.frequency_description || '',
+      item.duration_days || '',
+      item.notes || '-'
+    ]) : [];
+
+    return {
+      title: lang === 'ar' ? 'روشتة طبية علاجية للأطفال' : 'Pediatric Medical Prescription',
+      subtitle: settings?.name || (lang === 'ar' ? "عيادة الدكتور مينا التخصصية للأطفال" : "Dr. Mina Pediatric Clinic Specialty"),
+      metadata: patientProfile,
+      sections: [
+        {
+          title: lang === 'ar' ? 'التشخصيات الطبية المقررة' : 'Clinical Diagnosis / Notes',
+          text: data.diagnosis || '-'
+        },
+        {
+          title: lang === 'ar' ? 'العلاجات والأدوية الموصوفة (℞)' : 'Prescribed Medications (℞)',
+          table: {
+            headers,
+            rows
+          }
+        },
+        {
+          title: lang === 'ar' ? 'موعد إعادة الاستشارة والمتابعة' : 'Scheduled Revisit Appointment',
+          text: data.revisit_date ? `${new Date(data.revisit_date).toLocaleDateString(lang === 'ar' ? 'ar-EG' : 'en-US')} - ${data.revisit_method || ''}` : (lang === 'ar' ? 'لا يوجد استشارة إعادة مقررة حالياً' : 'No follow-up revisit scheduled')
+        }
+      ],
+      filename: `prescription_${data.patient_name ? data.patient_name.trim().replace(/\s+/g, '_') : 'children_file'}`
+    };
   };
 
   // Image upload, compress (within 1200 max dim), upload to Cloudinary with secure proxy, fallback to MongoDB
@@ -508,6 +578,9 @@ export default function PrescriptionPrinter({ prescriptionId, lang = 'ar' }: { p
             .no-print, .print-bg-mockup, .print-only-visual, .calibration-badge {
               display: none !important;
             }
+            .print-force-show {
+              display: block !important;
+            }
           }
         ` }} />
       ) : (
@@ -563,6 +636,9 @@ export default function PrescriptionPrinter({ prescriptionId, lang = 'ar' }: { p
             }
             .no-print, .print-bg-mockup, .print-only-visual {
               display: none !important;
+            }
+            .print-force-show {
+              display: block !important;
             }
           }
         ` }} />
@@ -623,9 +699,17 @@ export default function PrescriptionPrinter({ prescriptionId, lang = 'ar' }: { p
             </Button>
           )}
 
+          {data && (
+            <ExportDropdown
+              lang={lang}
+              getPayload={getPrescriptionExportPayload}
+              buttonText={lang === 'ar' ? 'تصدير الروشتة' : 'Export Prescription'}
+            />
+          )}
+
           <Button 
             onClick={handlePrint} 
-            className="bg-sky-600 hover:bg-sky-700 text-white flex gap-2 shadow-lg shadow-sky-500/20 rounded-2xl h-10 px-5 font-black text-sm ml-auto md:ml-0"
+            className="bg-sky-600 hover:bg-sky-700 text-white flex gap-2 shadow-lg shadow-sky-500/20 rounded-2xl h-10 px-5 font-black text-sm"
           >
             <Printer className="h-4 w-4" />
             {t.print_prescription}
@@ -898,6 +982,21 @@ export default function PrescriptionPrinter({ prescriptionId, lang = 'ar' }: { p
                 )}
               </div>
 
+              {bgImage && (
+                <div className="flex items-center gap-2 px-1 py-1.5 bg-sky-50/40 dark:bg-sky-950/20 rounded-xl border border-sky-100/30 dark:border-sky-900/15">
+                  <input
+                    type="checkbox"
+                    id="print-bg-image-toggle"
+                    checked={printBgImage}
+                    onChange={(e) => handlePrintBgImageChange(e.target.checked)}
+                    className="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500 cursor-pointer"
+                  />
+                  <label htmlFor="print-bg-image-toggle" className="text-xs font-black text-slate-600 dark:text-slate-300 cursor-pointer select-none">
+                    {lang === 'ar' ? 'طباعة الخلفية المرفوعة مع الروشتة' : 'Print background with prescription'}
+                  </label>
+                </div>
+              )}
+
               {/* Upload image input container */}
               <div className="relative">
                 <input
@@ -975,11 +1074,11 @@ export default function PrescriptionPrinter({ prescriptionId, lang = 'ar' }: { p
                     src={bgImage} 
                     alt="Prescription Scan Mockup" 
                     referrerPolicy="no-referrer"
-                    className="absolute inset-0 w-full h-full object-fill pointer-events-none select-none print-bg-mockup opacity-75 z-0"
+                    className={`absolute inset-0 w-full h-full object-fill pointer-events-none select-none z-0 ${printBgImage ? "print-force-show" : "print-bg-mockup"} opacity-75`}
                     style={{ 
                       width: '16.5cm', 
                       height: '24cm',
-                      display: showDesignGuide ? 'block' : 'none' 
+                      display: (showDesignGuide || printBgImage) ? 'block' : 'none' 
                     }}
                   />
                 )}
@@ -1154,7 +1253,9 @@ export default function PrescriptionPrinter({ prescriptionId, lang = 'ar' }: { p
                   }}
                 >
                   <span className="font-extrabold text-[#111827]">
-                    {format(new Date(data.createdAt), 'dd / MM / yyyy')}
+                    {data.createdAt && !isNaN(new Date(data.createdAt).getTime())
+                      ? format(new Date(data.createdAt), 'dd / MM / yyyy')
+                      : '---'}
                   </span>
                   {calibrationMode && (
                     <span className="absolute -top-3.5 left-0 bg-sky-600 text-white font-mono text-[7px] px-1 py-0.2 rounded-t font-bold leading-none select-none z-30 opacity-80 pointer-events-none uppercase">date</span>
@@ -1322,7 +1423,7 @@ export default function PrescriptionPrinter({ prescriptionId, lang = 'ar' }: { p
                     height: '9.3cm', 
                   }}
                 >
-                  {data.items.map((item: any, i: number) => (
+                  {(data.items || []).map((item: any, i: number) => (
                     <div key={i} className="flex items-start gap-3" dir="ltr" style={{ fontSize: `${layout.medications.fontSize}px` }}>
                       <div className="h-[21px] w-[21px] rounded-full bg-slate-900 text-white font-extrabold text-[10px] flex items-center justify-center shrink-0 mt-0.5">
                         {i + 1}
@@ -1388,7 +1489,9 @@ export default function PrescriptionPrinter({ prescriptionId, lang = 'ar' }: { p
                       {lang === 'ar' ? 'موعد الاستشارة المجدول:' : 'Scheduled Revisit Date:'}
                     </div>
                     <div className="text-[12px] font-black text-slate-900 mt-1 pointer-events-none select-none">
-                      {format(new Date(data.revisit_date), 'dd / MM / yyyy')}
+                      {data.revisit_date && !isNaN(new Date(data.revisit_date).getTime())
+                        ? format(new Date(data.revisit_date), 'dd / MM / yyyy')
+                        : '---'}
                     </div>
                     {calibrationMode && (
                       <span className="absolute -top-3.5 right-0 bg-sky-600 text-white font-mono text-[7px] px-1 py-0.2 rounded-t font-bold leading-none select-none z-30 opacity-80 pointer-events-none uppercase">revisit</span>
@@ -1438,7 +1541,9 @@ export default function PrescriptionPrinter({ prescriptionId, lang = 'ar' }: { p
                   <div className="flex items-baseline gap-2 border-b border-dotted border-slate-300 pb-1">
                     <span className="text-sky-900 font-black text-xs whitespace-nowrap min-w-[50px]">Date:</span>
                     <span className="font-extrabold text-base text-slate-800">
-                      {format(new Date(data.createdAt), 'dd / MM / yyyy')}
+                      {data.createdAt && !isNaN(new Date(data.createdAt).getTime())
+                        ? format(new Date(data.createdAt), 'dd / MM / yyyy')
+                        : '---'}
                     </span>
                   </div>
                   <div className="flex items-baseline gap-2 border-b border-dotted border-slate-300 pb-1">
@@ -1485,7 +1590,7 @@ export default function PrescriptionPrinter({ prescriptionId, lang = 'ar' }: { p
 
               {/* Medications List Area */}
               <div className="flex-grow space-y-4 pr-4 mb-8">
-                {data.items.map((item: any, i: number) => (
+                {(data.items || []).map((item: any, i: number) => (
                   <div key={i} className="group" dir="ltr">
                     <div className="flex items-start gap-4">
                       <div className="h-6 w-6 rounded-full bg-sky-900 text-white font-black text-xs flex items-center justify-center shrink-0 mt-0.5">

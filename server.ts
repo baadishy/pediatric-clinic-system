@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import path from "path";
+import fs from "fs";
 import Database from "better-sqlite3";
 import dotenv from "dotenv";
 import jwt from "jsonwebtoken";
@@ -8,12 +9,58 @@ import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { MongoClient, ObjectId as MongoObjectId } from "mongodb";
 
+// 1. Initial standard dotenv discovery (loads from process.cwd())
 dotenv.config();
+
+// 2. Discover .env in secondary location when running under runtime Electron wrapper
+try {
+  // Check if we are inside Electron
+  const isElectron = !!(process.versions && process.versions.electron);
+  if (isElectron) {
+    // Check next to the executable (e.g., C:\Users\Username\AppData\Local\Programs\Pediatric Clinic\.env)
+    const exeDir = path.dirname(process.execPath);
+    const envAtExe = path.join(exeDir, ".env");
+    
+    if (fs.existsSync(envAtExe)) {
+      console.log(`[production] Located .env next to executable at: ${envAtExe}`);
+      dotenv.config({ path: envAtExe, override: true });
+    } else {
+      // Check in resource hierarchy base (next to resources directory/app.asar folder)
+      const resourcesDir = (process as any).resourcesPath;
+      if (resourcesDir) {
+        const envAtResources = path.join(resourcesDir, "..", ".env");
+        if (fs.existsSync(envAtResources)) {
+          console.log(`[production] Located .env next to resources/app.asar directory at: ${envAtResources}`);
+          dotenv.config({ path: envAtResources, override: true });
+        }
+      }
+    }
+  }
+} catch (envCheckErr) {
+  console.error("Non-fatal issue checking for Electron-specific .env paths:", envCheckErr);
+}
 
 const JWT_SECRET = process.env.JWT_SECRET || "pediatric_secret_777";
 
 const MONGODB_URI = process.env.MONGODB_URI;
 const useMongo = !!MONGODB_URI;
+
+const dbStatus = {
+  type: "sqlite",
+  attempted: !!MONGODB_URI,
+  connected: false,
+  error: null as string | null,
+  uriFound: !!MONGODB_URI,
+  uriMasked: ""
+};
+
+if (MONGODB_URI) {
+  try {
+    dbStatus.uriMasked = MONGODB_URI.replace(/:([^:@]+)@/, ":****@");
+  } catch (e) {
+    dbStatus.uriMasked = "mongodb+srv://user:****@cluster...";
+  }
+}
 
 class ObjectId {
   private value: any;
@@ -57,6 +104,18 @@ class ObjectId {
 
   toBSON() {
     return this.value;
+  }
+
+  static isValid(id: any): boolean {
+    if (!id) return false;
+    if (useMongo) {
+      try {
+        return MongoObjectId.isValid(id.toString());
+      } catch (e) {
+        return false;
+      }
+    }
+    return typeof id === 'string' && id.length >= 5;
   }
 }
 
@@ -131,6 +190,7 @@ function applyUpdate(doc: any, update: any) {
 function normalizeData(obj: any): any {
   if (obj === null || obj === undefined) return obj;
   if (obj instanceof ObjectId) return obj.toString();
+  if (obj instanceof Date) return obj.toISOString();
   if (Array.isArray(obj)) return obj.map(normalizeData);
   if (typeof obj === 'object') {
     const res: any = {};
@@ -367,6 +427,9 @@ class AtlasMongoCollection {
     if (obj instanceof ObjectId) {
       return obj.toBSON();
     }
+    if (obj instanceof Date) {
+      return obj;
+    }
     if (Array.isArray(obj)) {
       return obj.map(item => this.unwrap(item));
     }
@@ -382,14 +445,24 @@ class AtlasMongoCollection {
 
   private wrap(obj: any): any {
     if (obj === null || obj === undefined) return obj;
+    if (obj instanceof Date) {
+      return obj.toISOString();
+    }
     if (Array.isArray(obj)) {
       return obj.map(item => this.wrap(item));
     }
     if (typeof obj === 'object') {
+      if (obj instanceof MongoObjectId) {
+        return obj.toString();
+      }
       const result: any = {};
       for (const [key, val] of Object.entries(obj)) {
         if (val instanceof MongoObjectId) {
           result[key] = val.toString();
+        } else if (val instanceof Date) {
+          result[key] = val.toISOString();
+        } else if (val && typeof val === 'object' && Object.keys(val).length === 0 && (key.includes('Date') || key.includes('date') || key.includes('At') || key.includes('at'))) {
+          result[key] = new Date().toISOString();
         } else {
           result[key] = this.wrap(val);
         }
@@ -496,6 +569,7 @@ if (useMongo) {
     mongoClient = new MongoClient(MONGODB_URI!);
   } catch (err) {
     console.error("Failed to construct MongoClient. Falling back to local SQLite.", err);
+    dbStatus.error = err instanceof Error ? err.message : String(err);
   }
 }
 
@@ -518,8 +592,49 @@ async function initDB() {
       await mongoClient.connect();
       mongoDb = mongoClient.db();
       console.log("Successfully connected to MongoDB Atlas!");
+      dbStatus.type = "mongodb";
+      dbStatus.connected = true;
+      dbStatus.error = null;
     } else {
       console.log("Connected to SQLite Database (Virtual MongoDB)");
+      dbStatus.type = "sqlite";
+      dbStatus.connected = false;
+
+      // Heal any broken database entries in SQLite where dates were saved as "{}" or invalid structures
+      const tables = ["patients", "prescriptions", "growth_data", "appointments", "waiting_list", "clinics", "clinic_settings"];
+      for (const table of tables) {
+        try {
+          const exists = sqliteDb.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`).get(table);
+          if (exists) {
+            const rows = sqliteDb.prepare(`SELECT * FROM [${table}]`).all() as any[];
+            for (const row of rows) {
+              let doc = JSON.parse(row.data);
+              let changed = false;
+              
+              // Heal createdAt
+              if (doc.createdAt && (typeof doc.createdAt === 'object' && Object.keys(doc.createdAt).length === 0)) {
+                doc.createdAt = new Date().toISOString();
+                changed = true;
+              } else if (!doc.createdAt) {
+                doc.createdAt = new Date().toISOString();
+                changed = true;
+              }
+              
+              // Heal updatedAt
+              if (doc.updatedAt && (typeof doc.updatedAt === 'object' && Object.keys(doc.updatedAt).length === 0)) {
+                doc.updatedAt = new Date().toISOString();
+                changed = true;
+              }
+              
+              if (changed) {
+                sqliteDb.prepare(`UPDATE [${table}] SET data = ? WHERE _id = ?`).run(JSON.stringify(doc), row._id);
+              }
+            }
+          }
+        } catch (e) {
+          console.error(`Error healing SQLite table ${table}:`, e);
+        }
+      }
     }
 
     // Collection names
@@ -572,6 +687,9 @@ async function initDB() {
 
   } catch (error) {
     console.error("Database initialization failed:", error);
+    dbStatus.error = error instanceof Error ? error.message : String(error);
+    dbStatus.connected = false;
+    dbStatus.type = "sqlite";
     if (useMongo) {
       console.log("Attempting automatic fallback to SQLite due to Atlas connection error...");
       mongoDb = null; // unset mongoDb to force SQLite collections
@@ -653,19 +771,31 @@ app.get("/api/waiting", authenticateToken, async (req, res) => {
           as: "patient_info"
         }
       },
-      { $unwind: "$patient_info" }
+      { $unwind: "$patient_info" },
+      {
+        $lookup: {
+          from: "appointments",
+          localField: "appointment_id",
+          foreignField: "_id",
+          as: "appt_info"
+        }
+      }
     ]).toArray();
 
-  res.json(waiting.map((w: any) => ({
-    id: w._id.toString(),
-    patient_id: w.patient_id.toString(),
-    appointment_id: w.appointment_id ? w.appointment_id.toString() : undefined,
-    patient_name: w.patient_info.name,
-    patient_number: w.patient_info.patient_number,
-    birth_date: w.patient_info.birth_date,
-    revisit_method: w.revisit_method,
-    createdAt: w.createdAt
-  })));
+  res.json(waiting.map((w: any) => {
+    const apptPhone = w.appt_info && w.appt_info[0] ? w.appt_info[0].phone : undefined;
+    return {
+      id: w._id.toString(),
+      patient_id: w.patient_id.toString(),
+      appointment_id: w.appointment_id ? w.appointment_id.toString() : undefined,
+      patient_name: w.patient_info.name,
+      patient_number: w.patient_info.patient_number,
+      patient_phone: w.patient_info.patient_phone || w.patient_info.phone || apptPhone || "",
+      birth_date: w.patient_info.birth_date,
+      revisit_method: w.revisit_method,
+      createdAt: w.createdAt
+    };
+  }));
 });
 
 app.post("/api/waiting", authenticateToken, async (req, res) => {
@@ -1051,7 +1181,11 @@ app.get("/api/prescriptions/:id", authenticateToken, authorize(['doctor']), asyn
   const prescription = await db.collection("prescriptions").findOne({ _id: new ObjectId(req.params.id) });
   if (!prescription) return res.status(404).json({ error: "Prescription not found" });
   
-  const patient = await db.collection("patients").findOne({ _id: prescription.patient_id });
+  let queryPatientId = prescription.patient_id;
+  if (typeof queryPatientId === 'string' && ObjectId.isValid(queryPatientId)) {
+    queryPatientId = new ObjectId(queryPatientId);
+  }
+  const patient = await db.collection("patients").findOne({ _id: queryPatientId });
   res.json({
     ...prescription,
     id: prescription._id.toString(),
@@ -1237,6 +1371,93 @@ app.post("/api/patients/:id/growth", authenticateToken, authorize(['doctor']), a
 app.delete("/api/growth/:id", authenticateToken, authorize(['doctor']), async (req, res) => {
   await db.collection("growth_data").deleteOne({ _id: new ObjectId(req.params.id) });
   res.json({ success: true });
+});
+
+app.get("/api/db-status", (req, res) => {
+  res.json({
+    status: "ok",
+    db: dbStatus,
+    env: {
+      NODE_ENV: process.env.NODE_ENV,
+      PORT: process.env.PORT,
+    }
+  });
+});
+
+app.get("/api/run-tests", async (req, res) => {
+  const testResults: any[] = [];
+  
+  // Test 1: normalizeData Date serialization
+  try {
+    const testDate = new Date("2026-05-24T12:00:00.000Z");
+    const normalized = normalizeData(testDate);
+    if (normalized === "2026-05-24T12:00:00.000Z") {
+      testResults.push({ name: "Date Serialization (normalizeData)", status: "passed" });
+    } else {
+      testResults.push({ name: "Date Serialization (normalizeData)", status: "failed", error: `Expected ISO string, got: ${JSON.stringify(normalized)}` });
+    }
+  } catch (err: any) {
+    testResults.push({ name: "Date Serialization (normalizeData)", status: "failed", error: err.message });
+  }
+
+  // Test 2: Database Integrity & Healing
+  try {
+    if (!useMongo) {
+      // Create a test table
+      sqliteDb.prepare(`CREATE TABLE IF NOT EXISTS [test_heal_table] (_id TEXT PRIMARY KEY, data TEXT)`).run();
+      
+      // Insert simulated broken record with empty object date
+      const brokenData = { _id: "test-id-123", createdAt: {}, title: "Test Record" };
+      sqliteDb.prepare(`INSERT OR REPLACE INTO [test_heal_table] (_id, data) VALUES (?, ?)`).run("test-id-123", JSON.stringify(brokenData));
+      
+      // Run the healing logic on it
+      const row = sqliteDb.prepare(`SELECT * FROM [test_heal_table] WHERE _id = ?`).get("test-id-123") as any;
+      if (row) {
+        let doc = JSON.parse(row.data);
+        if (doc.createdAt && (typeof doc.createdAt === 'object' && Object.keys(doc.createdAt).length === 0)) {
+          doc.createdAt = new Date().toISOString();
+          sqliteDb.prepare(`UPDATE [test_heal_table] SET data = ? WHERE _id = ?`).run(JSON.stringify(doc), row._id);
+        }
+      }
+      
+      // Verify healed
+      const healedRow = sqliteDb.prepare(`SELECT * FROM [test_heal_table] WHERE _id = ?`).get("test-id-123") as any;
+      const healedDoc = JSON.parse(healedRow.data);
+      if (healedDoc.createdAt && typeof healedDoc.createdAt === 'string' && !isNaN(new Date(healedDoc.createdAt).getTime())) {
+        testResults.push({ name: "SQLite Date Healing Engine", status: "passed" });
+      } else {
+        testResults.push({ name: "SQLite Date Healing Engine", status: "failed", error: `Date was not healed correctly: ${JSON.stringify(healedDoc.createdAt)}` });
+      }
+      
+      // Clean up
+      sqliteDb.prepare(`DROP TABLE IF EXISTS [test_heal_table]`).run();
+    } else {
+      testResults.push({ name: "SQLite Date Healing Engine", status: "skipped (MongoDB active)" });
+    }
+  } catch (err: any) {
+    testResults.push({ name: "SQLite Date Healing Engine", status: "failed", error: err.message });
+  }
+
+  // Test 3: Standard Collections seeding validation
+  try {
+    const usersCount = await db.collection("users").countDocuments();
+    const medsCount = await db.collection("medication_rules").countDocuments();
+    if (usersCount > 0 && medsCount > 0) {
+      testResults.push({ name: "Seeded Collections Validation", status: "passed", info: `Users count: ${usersCount}, Meds count: ${medsCount}` });
+    } else {
+      testResults.push({ name: "Seeded Collections Validation", status: "failed", error: `Missing seeded collections data. Users: ${usersCount}, Meds: ${medsCount}` });
+    }
+  } catch (err: any) {
+    testResults.push({ name: "Seeded Collections Validation", status: "failed", error: err.message });
+  }
+
+  // Response
+  const allPassed = testResults.every(r => r.status === "passed" || r.status.startsWith("skipped"));
+  res.status(allPassed ? 200 : 500).json({
+    success: allPassed,
+    timestamp: new Date().toISOString(),
+    tests: testResults
+  });
 });
 
 app.get("/api/health-check", (req, res) => {

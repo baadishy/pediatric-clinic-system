@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { Stethoscope, FileText, Pill, Settings as SettingsIcon, Sun, Moon, Database, Languages, UserPlus, ClipboardList, Syringe, History, LineChart, LogOut } from 'lucide-react';
+import { Stethoscope, FileText, Pill, Settings as SettingsIcon, Sun, Moon, Database, Languages, UserPlus, ClipboardList, Syringe, History, LineChart, LogOut, FileSpreadsheet, Menu, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import PatientRegistration from './components/PatientRegistration';
 import PrescriptionPrinter from './components/PrescriptionPrinter';
 import MedicationRules from './components/MedicationRules';
@@ -122,6 +122,8 @@ export type AppTab = 'waiting' | 'patient' | 'prescription' | 'history' | 'rules
 
 export default function App() {
   const [lang, setLang] = useState<Language>('ar');
+  const [sidebarExpanded, setSidebarExpanded] = useState(true);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [activeTab, setActiveTab] = useState<AppTab>('waiting');
   const [currentPrescriptionId, setCurrentPrescriptionId] = useState<string | null>(null);
@@ -260,44 +262,158 @@ export default function App() {
 
   return (
     <ThemeProvider attribute="class" defaultTheme="light">
-      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 font-sans transition-colors duration-300" dir={lang === 'ar' ? 'rtl' : 'ltr'}>
-        {/* Header - Only for Doctor or when in full view */}
+      <div className={`min-h-screen bg-slate-50 dark:bg-slate-950 font-sans transition-all duration-300 ${user && user.role === 'doctor' ? (sidebarExpanded ? 'lg:ps-72' : 'lg:ps-20') : ''}`} dir={lang === 'ar' ? 'rtl' : 'ltr'}>
+        {/* Dynamic Sidebar for Desktop Screens */}
         {user.role === 'doctor' && (
-        <header className="bg-white dark:bg-slate-900 shadow-sm border-b dark:border-slate-800 sticky top-0 z-30 print:hidden">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex justify-between items-center h-16">
-              <div className="flex items-center gap-2 text-sky-600 dark:text-sky-400 min-w-0" onClick={() => setActiveTab('waiting')}>
-                <Stethoscope className="h-8 w-8 shrink-0 cursor-pointer" />
-                <h1 className="text-xl sm:text-2xl font-bold truncate cursor-pointer">{clinicName}</h1>
+          <aside className={`fixed inset-y-0 start-0 z-40 bg-white dark:bg-slate-900 border-e border-slate-200 dark:border-slate-800 hidden lg:flex flex-col justify-between shadow-xl print:hidden transition-all duration-300 ${sidebarExpanded ? 'w-72' : 'w-20'}`}>
+            {/* Collapse/Expand Toggle Handle Button */}
+            <button 
+              onClick={() => setSidebarExpanded(!sidebarExpanded)} 
+              className={`absolute top-6 ${lang === 'ar' ? 'left-[-14px]' : 'right-[-14px]'} bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-full p-1 shadow-md hover:bg-slate-50 dark:hover:bg-slate-800 transition-all hover:scale-110 z-50 text-slate-500 hover:text-sky-500`}
+              title={sidebarExpanded ? (lang === 'ar' ? 'تصغير القائمة' : 'Collapse Sidebar') : (lang === 'ar' ? 'توسيع القائمة' : 'Expand Sidebar')}
+            >
+              {sidebarExpanded ? (
+                lang === 'ar' ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />
+              ) : (
+                lang === 'ar' ? <ChevronLeft className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />
+              )}
+            </button>
+
+            {/* Top Side: Brand Header & Tabs Navigation List */}
+            <div className={`flex-1 flex flex-col min-h-0 overflow-y-auto p-4 space-y-6 ${!sidebarExpanded ? 'items-center px-2' : ''}`}>
+              <div className={`flex items-center gap-2.5 text-sky-600 dark:text-sky-400 px-2 py-1 select-none cursor-pointer w-full ${!sidebarExpanded ? 'justify-center' : ''}`} onClick={() => setActiveTab('waiting')}>
+                <Stethoscope className="h-8 w-8 shrink-0 text-sky-500" />
+                {sidebarExpanded && (
+                  <h1 className="text-xl font-black truncate tracking-tight">{clinicName}</h1>
+                )}
               </div>
-              <div className="flex items-center gap-2 sm:gap-4">
-                <nav className="hidden lg:flex items-center space-x-0.5 space-x-reverse">
-                  <TabButton lang={lang} active={activeTab === 'waiting'} onClick={() => setActiveTab('waiting')} icon={<ClipboardList className="h-4 w-4" />} label={t.waiting_room} />
-                  <TabButton lang={lang} active={activeTab === 'patient'} onClick={() => { setActiveTab('patient'); setEditPrescriptionId(null); setSelectedWaitingItem(null); }} icon={<UserPlus className="h-4 w-4" />} label={t.new_visit} />
-                  <TabButton lang={lang} active={activeTab === 'prescription'} onClick={() => setActiveTab('prescription')} icon={<FileText className="h-4 w-4" />} label={t.prescription} />
-                  <TabButton lang={lang} active={activeTab === 'history'} onClick={() => setActiveTab('history')} icon={<History className="h-4 w-4" />} label={t.history} />
-                  <TabButton lang={lang} active={activeTab === 'growth'} onClick={() => setActiveTab('growth')} icon={<LineChart className="h-4 w-4" />} label={t.growth_curve} />
-                  <TabButton lang={lang} active={activeTab === 'rules'} onClick={() => setActiveTab('rules')} icon={<Syringe className="h-4 w-4" />} label={t.medications_settings} />
-                  <TabButton lang={lang} active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} icon={<SettingsIcon className="h-4 w-4" />} label={t.settings} />
-                </nav>
-                <div className="flex items-center gap-2 border-l border-slate-200 dark:border-slate-800 pl-4 h-8">
-                  <div className="hidden sm:flex flex-col items-end">
-                    <span className="text-xs font-black text-slate-900 dark:text-white capitalize">{user.name}</span>
-                    <span className="text-[10px] text-sky-500 font-bold uppercase">{user.role === 'doctor' ? t.doctor_role : t.assistant_role}</span>
+
+              <nav className="flex flex-col gap-1.5 w-full">
+                <TabButton lang={lang} vertical collapsed={!sidebarExpanded} active={activeTab === 'waiting'} onClick={() => setActiveTab('waiting')} icon={<ClipboardList className="h-4 w-4" />} label={t.waiting_room} />
+                <TabButton lang={lang} vertical collapsed={!sidebarExpanded} active={activeTab === 'patient'} onClick={() => { setActiveTab('patient'); setEditPrescriptionId(null); setSelectedWaitingItem(null); }} icon={<UserPlus className="h-4 w-4" />} label={t.new_visit} />
+                <TabButton lang={lang} vertical collapsed={!sidebarExpanded} active={activeTab === 'prescription'} onClick={() => setActiveTab('prescription')} icon={<FileText className="h-4 w-4" />} label={t.prescription} />
+                <TabButton lang={lang} vertical collapsed={!sidebarExpanded} active={activeTab === 'history'} onClick={() => setActiveTab('history')} icon={<History className="h-4 w-4" />} label={t.history} />
+                <TabButton lang={lang} vertical collapsed={!sidebarExpanded} active={activeTab === 'growth'} onClick={() => setActiveTab('growth')} icon={<LineChart className="h-4 w-4" />} label={t.growth_curve} />
+                <TabButton lang={lang} vertical collapsed={!sidebarExpanded} active={activeTab === 'rules'} onClick={() => setActiveTab('rules')} icon={<Syringe className="h-4 w-4" />} label={t.medications_settings} />
+                <TabButton lang={lang} vertical collapsed={!sidebarExpanded} active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} icon={<SettingsIcon className="h-4 w-4" />} label={t.settings} />
+              </nav>
+            </div>
+
+            {/* Bottom Side: Profile Card & Utilities */}
+            <div className={`p-4 border-t border-slate-100 dark:border-slate-800 space-y-4 bg-slate-50/50 dark:bg-slate-950/20 ${!sidebarExpanded ? 'px-2' : ''}`}>
+              <div className={`flex items-center justify-between p-3 bg-white dark:bg-slate-900 border border-slate-150 dark:border-slate-850 rounded-xl shadow-sm ${!sidebarExpanded ? 'justify-center p-2' : ''}`}>
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="h-8 w-8 rounded-lg bg-sky-500 text-white flex items-center justify-center text-xs font-black shrink-0" title={user.name}>
+                    {user.name.charAt(0).toUpperCase()}
                   </div>
-                  <Button variant="ghost" size="icon" onClick={handleLogout} className="text-slate-400 hover:text-rose-500 transition-colors">
-                    <LogOut className="h-5 w-5" />
+                  {sidebarExpanded && (
+                    <div className="min-w-0 text-start">
+                      <div className="text-xs font-black text-slate-800 dark:text-slate-100 truncate">{user.name}</div>
+                      <div className="text-[10px] text-sky-500 font-bold uppercase">{user.role === 'doctor' ? t.doctor_role : t.assistant_role}</div>
+                    </div>
+                  )}
+                </div>
+                {sidebarExpanded && (
+                  <Button variant="ghost" size="icon" onClick={handleLogout} className="text-slate-400 hover:text-rose-500 transition-colors h-7 w-7 rounded-md shrink-0">
+                    <LogOut className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
+
+              <div className={`flex items-center justify-between pt-1 gap-1 ${!sidebarExpanded ? 'flex-col gap-3 justify-center' : ''}`}>
+                <LanguageToggle lang={lang} setLang={setLang} />
+                <ThemeToggle />
+              </div>
+            </div>
+          </aside>
+        )}
+
+        {/* Mobile Sidebar Backdrop Drawer Overlay */}
+        {user.role === 'doctor' && mobileMenuOpen && (
+          <div className="fixed inset-0 z-50 lg:hidden flex">
+            <div 
+              className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity duration-300" 
+              onClick={() => setMobileMenuOpen(false)}
+            />
+            <motion.aside 
+              initial={{ x: lang === 'ar' ? '100%' : '-100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: lang === 'ar' ? '100%' : '-100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className="relative z-50 w-72 h-full bg-white dark:bg-slate-900 border-e border-slate-200 dark:border-slate-800 flex flex-col justify-between shadow-2xl" dir={lang === 'ar' ? 'rtl' : 'ltr'}
+            >
+              {/* Close Button top edge */}
+              <div className={`absolute top-4 ${lang === 'ar' ? 'left-4' : 'right-4'} z-50`}>
+                <Button variant="ghost" size="icon" onClick={() => setMobileMenuOpen(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-full h-8 w-8">
+                  <X className="h-5 w-5" />
+                </Button>
+              </div>
+
+              {/* Drawer Top Side */}
+              <div className="flex-1 flex flex-col min-h-0 overflow-y-auto p-4 space-y-6">
+                <div className="flex items-center gap-2.5 text-sky-600 dark:text-sky-400 px-2 py-1 select-none cursor-pointer" onClick={() => { setActiveTab('waiting'); setMobileMenuOpen(false); }}>
+                  <Stethoscope className="h-8 w-8 shrink-0 text-sky-500" />
+                  <h1 className="text-xl font-black truncate tracking-tight">{clinicName}</h1>
+                </div>
+
+                <nav className="flex flex-col gap-1.5">
+                  <TabButton lang={lang} vertical active={activeTab === 'waiting'} onClick={() => { setActiveTab('waiting'); setMobileMenuOpen(false); }} icon={<ClipboardList className="h-4 w-4" />} label={t.waiting_room} />
+                  <TabButton lang={lang} vertical active={activeTab === 'patient'} onClick={() => { setActiveTab('patient'); setEditPrescriptionId(null); setSelectedWaitingItem(null); setMobileMenuOpen(false); }} icon={<UserPlus className="h-4 w-4" />} label={t.new_visit} />
+                  <TabButton lang={lang} vertical active={activeTab === 'prescription'} onClick={() => { setActiveTab('prescription'); setMobileMenuOpen(false); }} icon={<FileText className="h-4 w-4" />} label={t.prescription} />
+                  <TabButton lang={lang} vertical active={activeTab === 'history'} onClick={() => { setActiveTab('history'); setMobileMenuOpen(false); }} icon={<History className="h-4 w-4" />} label={t.history} />
+                  <TabButton lang={lang} vertical active={activeTab === 'growth'} onClick={() => { setActiveTab('growth'); setMobileMenuOpen(false); }} icon={<LineChart className="h-4 w-4" />} label={t.growth_curve} />
+                  <TabButton lang={lang} vertical active={activeTab === 'rules'} onClick={() => { setActiveTab('rules'); setMobileMenuOpen(false); }} icon={<Syringe className="h-4 w-4" />} label={t.medications_settings} />
+                  <TabButton lang={lang} vertical active={activeTab === 'settings'} onClick={() => { setActiveTab('settings'); setMobileMenuOpen(false); }} icon={<SettingsIcon className="h-4 w-4" />} label={t.settings} />
+                </nav>
+              </div>
+
+              {/* Drawer User block */}
+              <div className="p-4 border-t border-slate-100 dark:border-slate-800 space-y-4 bg-slate-50/50 dark:bg-slate-950/20">
+                <div className="flex items-center justify-between p-3 bg-white dark:bg-slate-900 border border-slate-150 dark:border-slate-850 rounded-xl shadow-sm">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="h-8 w-8 rounded-lg bg-sky-500 text-white flex items-center justify-center text-xs font-black shrink-0">
+                      {user.name.charAt(0).toUpperCase()}
+                    </div>
+                    <div className="min-w-0 text-start">
+                      <div className="text-xs font-black text-slate-800 dark:text-slate-100 truncate">{user.name}</div>
+                      <div className="text-[10px] text-sky-500 font-bold uppercase">{user.role === 'doctor' ? t.doctor_role : t.assistant_role}</div>
+                    </div>
+                  </div>
+                  <Button variant="ghost" size="icon" onClick={() => { handleLogout(); setMobileMenuOpen(false); }} className="text-slate-400 hover:text-rose-500 transition-colors h-7 w-7 rounded-md shrink-0">
+                    <LogOut className="h-4 w-4" />
                   </Button>
                 </div>
-                <div className="h-6 w-px bg-slate-200 dark:bg-slate-700 mx-1" />
-                <div className="flex items-center gap-0.5 sm:gap-1">
+
+                <div className="flex items-center justify-between pt-1 gap-1">
+                  <LanguageToggle lang={lang} setLang={setLang} />
+                  <ThemeToggle />
+                </div>
+              </div>
+            </motion.aside>
+          </div>
+        )}
+
+        {/* Compact Mobile Top Header */}
+        {user.role === 'doctor' && (
+          <header className="lg:hidden bg-white/95 dark:bg-slate-900/95 shadow-sm border-b border-slate-200 dark:border-slate-800 sticky top-0 z-30 print:hidden backdrop-blur">
+            <div className="px-4">
+              <div className="flex justify-between items-center h-16">
+                <div className="flex items-center gap-3 min-w-0">
+                  <Button variant="ghost" size="icon" onClick={() => setMobileMenuOpen(true)} className="text-slate-600 dark:text-slate-300 h-9 w-9 p-0 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg shrink-0">
+                    <Menu className="h-5 w-5" />
+                  </Button>
+                  <div className="flex items-center gap-2 text-sky-600 dark:text-sky-400 min-w-0" onClick={() => setActiveTab('waiting')}>
+                    <Stethoscope className="h-7 w-7 shrink-0 cursor-pointer text-sky-500" />
+                    <h1 className="text-lg font-extrabold truncate cursor-pointer">{clinicName}</h1>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2.5">
                   <LanguageToggle lang={lang} setLang={setLang} />
                   <ThemeToggle />
                 </div>
               </div>
             </div>
-          </div>
-        </header>
+          </header>
         )}
 
         {user.role === 'doctor' && (
@@ -354,7 +470,32 @@ export default function App() {
   );
 }
 
-function TabButton({ active, onClick, icon, label, lang }: { active: boolean, onClick: () => void, icon: React.ReactNode, label: string, lang: Language }) {
+function TabButton({ active, onClick, icon, label, lang, vertical = false, collapsed = false }: { active: boolean, onClick: () => void, icon: React.ReactNode, label: string, lang: Language, vertical?: boolean, collapsed?: boolean }) {
+  if (vertical) {
+    return (
+      <button
+        onClick={onClick}
+        title={collapsed ? label : undefined}
+        className={`w-full py-3 rounded-xl flex items-center transition-all text-start relative whitespace-nowrap ${
+          collapsed ? 'justify-center px-0' : 'px-4 gap-3'
+        } ${
+          active 
+            ? 'bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-400 font-extrabold' 
+            : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/40'
+        }`}
+      >
+        <span className={`${active ? 'scale-110 text-sky-600 dark:text-sky-400' : 'text-slate-400'} transition-transform shrink-0`}>{icon}</span>
+        {!collapsed && <span className="text-sm truncate select-none">{label}</span>}
+        {active && (
+          <motion.div
+            layoutId="activeTabIndicatorVertical"
+            className="absolute top-2.5 bottom-2.5 start-0 w-1 bg-sky-500 rounded-full"
+          />
+        )}
+      </button>
+    );
+  }
+
   return (
     <button
       onClick={onClick}

@@ -7,6 +7,8 @@ import { toast } from 'sonner';
 import { FileText, Search, Calendar, User, Eye, Loader2, Trash2, ChevronRight, ChevronDown, Clock, History as HistoryIcon, AlertCircle } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { motion, AnimatePresence } from 'motion/react';
+import ExportDropdown from './ExportDropdown';
+import { ExportPayload } from '../lib/exportUtils';
 
 interface GroupedHistory {
   patientId: string;
@@ -110,6 +112,7 @@ export default function PrescriptionHistory({ lang = 'ar', onViewPrescription, o
   const formatDate = (dateStr?: string) => {
     if (!dateStr) return '';
     const date = new Date(dateStr);
+    if (isNaN(date.getTime())) return '';
     return date.toLocaleDateString(lang === 'ar' ? 'ar-EG' : 'en-US', {
       year: 'numeric',
       month: 'short',
@@ -120,12 +123,95 @@ export default function PrescriptionHistory({ lang = 'ar', onViewPrescription, o
   const formatDateTime = (dateStr?: string) => {
     if (!dateStr) return '';
     const date = new Date(dateStr);
+    if (isNaN(date.getTime())) return '';
     return date.toLocaleString(lang === 'ar' ? 'ar-EG' : 'en-US', {
       month: 'short',
       day: 'numeric',
       hour: '2-digit',
       minute: '2-digit'
     });
+  };
+
+  const getPatientHistoryPayload = (group: GroupedHistory): ExportPayload => {
+    const patientProfile = [
+      { label: lang === 'ar' ? 'اسم المريض' : 'Patient Name', value: group.patientName },
+      { label: lang === 'ar' ? 'رقم المريض المميز' : 'Unique Patient ID', value: group.patientNumber ? (group.patientNumber.startsWith('#') ? group.patientNumber : `#${group.patientNumber}`) : '-' },
+      { label: lang === 'ar' ? 'أخر زيارة' : 'Last Visit Date', value: formatDate(group.lastVisit) },
+      { label: lang === 'ar' ? 'إجمالي عدد الزيارات' : 'Total Visits', value: group.prescriptions.length }
+    ];
+
+    const sections = group.prescriptions.map((p, idx) => {
+      const fields = [
+        { label: lang === 'ar' ? 'تاريخ الزيارة' : 'Visit Date', value: formatDateTime(p.createdAt) },
+        { label: lang === 'ar' ? 'نوع الخدمة / الكشف' : 'Service Type', value: p.service_name || (lang === 'ar' ? 'كشف' : 'Visit') },
+        { label: lang === 'ar' ? 'الوزن (كجم)' : 'Weight (kg)', value: p.weight ? `${p.weight} ${lang === 'ar' ? 'كجم' : 'kg'}` : '-' },
+        { label: lang === 'ar' ? 'درجة الحرارة (م)' : 'Temperature (°C)', value: p.temperature ? `${p.temperature} °C` : '-' },
+        { label: lang === 'ar' ? 'الشكوى الرئيسية' : 'Chief Complaint', value: p.complaint || '-' },
+        { label: lang === 'ar' ? 'التشخيص الطبي' : 'Medical Diagnosis', value: p.diagnosis || '-' },
+        { label: lang === 'ar' ? 'موعد الإعادة' : 'Follow-up Revisit', value: p.revisit_date ? `${formatDate(p.revisit_date)} (${p.revisit_method || ''})` : '-' }
+      ];
+
+      const headers = [
+        lang === 'ar' ? 'اسم الدواء' : 'Medication',
+        lang === 'ar' ? 'الجرعة المقررة' : 'Dosage',
+        lang === 'ar' ? 'التكرار' : 'Frequency',
+        lang === 'ar' ? 'المدة (أيام)' : 'Duration (Days)',
+        lang === 'ar' ? 'ملاحظات' : 'Notes'
+      ];
+
+      const rows = p.items ? p.items.map(item => [
+        item.medication_name,
+        item.dose_description,
+        item.frequency_description,
+        item.duration_days,
+        item.notes || '-'
+      ]) : [];
+
+      return {
+        title: `${lang === 'ar' ? 'الزيارة رقم' : 'Visit #'}${group.prescriptions.length - idx}: ${formatDateTime(p.createdAt)}`,
+        fields,
+        table: rows.length > 0 ? { headers, rows } : undefined
+      };
+    });
+
+    return {
+      title: lang === 'ar' ? `الملف الطبي للطفل: ${group.patientName}` : `Child Medical File - ${group.patientName}`,
+      subtitle: lang === 'ar' ? 'التوجيهات والزيارات الطبية الكاملة' : 'Complete visits sequence and recommendations',
+      metadata: patientProfile,
+      sections,
+      filename: `${group.patientName.replace(/\s+/g, '_')}_history`
+    };
+  };
+
+  const getGlobalHistoryPayload = (): ExportPayload => {
+    const headers = [
+      lang === 'ar' ? 'اسم الطفل' : 'Patient Name',
+      lang === 'ar' ? 'رقم المريض المميز' : 'Unique Patient ID',
+      lang === 'ar' ? 'عدد الزيارات' : 'Visits Count',
+      lang === 'ar' ? 'تاريخ آخر زيارة' : 'Last Visit Date'
+    ];
+
+    const rows = grouped.map(g => [
+      g.patientName,
+      g.patientNumber ? (g.patientNumber.startsWith('#') ? g.patientNumber : `#${g.patientNumber}`) : '-',
+      g.prescriptions.length,
+      formatDate(g.lastVisit)
+    ]);
+
+    return {
+      title: lang === 'ar' ? 'سجل المرضى الكلي بالعيادة' : 'Pediatric Patient Registry Summary',
+      subtitle: lang === 'ar' ? 'جميع الأطفال المسجلين بالمنصة وتاريخ زياراتهم' : 'Register of all children in database with visit frequency',
+      sections: [
+        {
+          title: lang === 'ar' ? 'جدول سجلات العيادة للأطفال' : 'Clinic Children Database Table',
+          table: {
+            headers,
+            rows
+          }
+        }
+      ],
+      filename: `clinic_patient_directory`
+    };
   };
 
   return (
@@ -144,14 +230,23 @@ export default function PrescriptionHistory({ lang = 'ar', onViewPrescription, o
                 <CardDescription className="font-medium">{lang === 'ar' ? 'إجمالي المرضى: ' : 'Total Patients: '}{grouped.length}</CardDescription>
               </div>
             </div>
-            <div className="relative max-w-sm w-full group">
-              <Search className={`absolute ${lang === 'ar' ? 'right-4' : 'left-4'} top-3 h-5 w-5 text-slate-400 group-focus-within:text-sky-500 transition-colors`} />
-              <Input 
-                placeholder={lang === 'ar' ? 'ابحث باسم الطفل...' : 'Search for a patient...'} 
-                className={`${lang === 'ar' ? 'pr-12' : 'pl-12'} bg-white dark:bg-slate-800 border-none h-12 rounded-2xl shadow-sm focus-visible:ring-2 focus-visible:ring-sky-500 transition-all text-lg`}
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-              />
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full md:max-w-md">
+              {grouped.length > 0 && (
+                <ExportDropdown 
+                  lang={lang} 
+                  getPayload={getGlobalHistoryPayload}
+                  buttonText={lang === 'ar' ? 'تصدير السجل الكلي' : 'Export Directory'}
+                />
+              )}
+              <div className="relative flex-1 group">
+                <Search className={`absolute ${lang === 'ar' ? 'right-4' : 'left-4'} top-3.5 h-5 w-5 text-slate-400 group-focus-within:text-sky-500 transition-colors`} />
+                <Input 
+                  placeholder={lang === 'ar' ? 'ابحث باسم الطفل...' : 'Search for a patient...'} 
+                  className={`${lang === 'ar' ? 'pr-12' : 'pl-12'} bg-white dark:bg-slate-800 border-none h-12 rounded-2xl shadow-sm focus-visible:ring-2 focus-visible:ring-sky-500 transition-all text-lg w-full`}
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                />
+              </div>
             </div>
           </div>
         </CardHeader>
@@ -185,41 +280,51 @@ export default function PrescriptionHistory({ lang = 'ar', onViewPrescription, o
                         setExpandedPatientId(expandedPatientId === group.patientId ? null : group.patientId);
                       }
                     }}
-                    className="w-full text-start p-6 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-all flex items-center justify-between cursor-pointer outline-none focus-within:bg-slate-50 dark:focus-within:bg-slate-800/40"
+                    className="w-full text-start p-4 sm:p-6 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4 cursor-pointer outline-none focus-within:bg-slate-50 dark:focus-within:bg-slate-800/40 border-b border-transparent"
                   >
-                    <div className="flex items-center gap-4">
-                      <div className="h-12 w-12 rounded-2xl bg-sky-100 dark:bg-sky-900/30 flex items-center justify-center text-sky-600 dark:text-sky-400 font-black text-xl shadow-inner">
+                    <div className="flex items-center gap-4 min-w-0 md:flex-1">
+                      <div className="h-12 w-12 rounded-2xl bg-sky-100 dark:bg-sky-900/30 flex items-center justify-center text-sky-600 dark:text-sky-400 font-black text-xl shadow-inner shrink-0">
                         {group.patientName.charAt(0).toUpperCase()}
                       </div>
-                      <div>
-                        <div className="flex items-center gap-2 mb-1">
-                          <h4 className="text-lg font-black text-slate-800 dark:text-slate-100">{group.patientName}</h4>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2 mb-1">
+                          <h4 className="text-base sm:text-lg font-black text-slate-800 dark:text-slate-100 truncate">{group.patientName}</h4>
                           {group.patientNumber && (
                             <span className="text-[10px] font-mono bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded text-slate-400">
                               #{group.patientNumber}
                             </span>
                           )}
                         </div>
-                        <div className="flex items-center gap-3 text-sm text-slate-500">
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs sm:text-sm text-slate-500">
                           <span className="flex items-center gap-1"><Clock className="h-3 w-3" /> {lang === 'ar' ? 'آخر زيارة: ' : 'Last visit: '} {formatDate(group.lastVisit)}</span>
-                          <span className="w-1 h-1 rounded-full bg-slate-300" />
+                          <span className="hidden sm:inline w-1 h-1 rounded-full bg-slate-300" />
                           <span className="font-bold text-sky-600 dark:text-sky-400">{group.prescriptions.length} {lang === 'ar' ? 'روشتة' : 'Prescriptions'}</span>
                         </div>
                       </div>
                     </div>
-                    <div className="flex items-center gap-3">
-                       <Button 
-                         variant="ghost" 
-                         size="icon" 
-                         className="h-10 w-10 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-2xl transition-all"
-                         onClick={(e) => {
-                           e.stopPropagation();
-                           setConfirmDeletePatientId(group.patientId);
-                         }}
-                       >
-                         <Trash2 className="h-5 w-5" />
-                       </Button>
-                       {expandedPatientId === group.patientId ? <ChevronDown className="h-6 w-6 text-slate-300" /> : <ChevronRight className={`h-6 w-6 text-slate-300 ${lang === 'ar' ? 'rotate-180' : ''}`} />}
+                    <div className="flex items-center justify-between sm:justify-end gap-3 w-full sm:w-auto border-t sm:border-t-0 pt-3 sm:pt-0 border-slate-100 dark:border-slate-800 shrink-0">
+                       <div onClick={(e) => e.stopPropagation()}>
+                         <ExportDropdown
+                           lang={lang}
+                           getPayload={() => getPatientHistoryPayload(group)}
+                           buttonText={lang === 'ar' ? 'تصدير' : 'Export'}
+                           size="sm"
+                         />
+                       </div>
+                       <div className="flex items-center gap-1.5">
+                         <Button 
+                           variant="ghost" 
+                           size="icon" 
+                           className="h-10 w-10 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-2xl transition-all shrink-0"
+                           onClick={(e) => {
+                             e.stopPropagation();
+                             setConfirmDeletePatientId(group.patientId);
+                           }}
+                         >
+                           <Trash2 className="h-5 w-5" />
+                         </Button>
+                         {expandedPatientId === group.patientId ? <ChevronDown className="h-6 w-6 text-slate-300 shrink-0" /> : <ChevronRight className={`h-6 w-6 text-slate-300 shrink-0 ${lang === 'ar' ? 'rotate-180' : ''}`} />}
+                       </div>
                     </div>
                   </div>
 
@@ -231,29 +336,31 @@ export default function PrescriptionHistory({ lang = 'ar', onViewPrescription, o
                         exit={{ height: 0, opacity: 0 }}
                         className="overflow-hidden bg-slate-50/50 dark:bg-slate-950/20"
                       >
-                        <div className="p-4 sm:p-6 space-y-3 pb-8">
+                        <div className="p-4 sm:p-6 space-y-4 pb-8">
                           {group.prescriptions.map((p) => (
                             <motion.div
                               key={p.id}
                               initial={{ opacity: 0, y: 10 }}
                               animate={{ opacity: 1, y: 0 }}
-                              className="bg-white dark:bg-slate-900 p-4 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4 group/item hover:border-sky-200 dark:hover:border-sky-900/50 transition-all ring-offset-2 ring-sky-500 focus-within:ring-2"
+                              className="bg-white dark:bg-slate-900 p-4 rounded-3xl shadow-sm border border-slate-150/80 dark:border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-4 group/item hover:border-sky-200 dark:hover:border-sky-900/50 transition-all ring-offset-2 ring-sky-500 focus-within:ring-2"
                             >
-                              <div className="flex items-center gap-4">
-                                <div className="p-2.5 bg-slate-50 dark:bg-slate-800 rounded-xl text-slate-400 group-hover/item:text-sky-500 transition-colors">
+                              <div className="flex items-start sm:items-center gap-4 min-w-0 flex-1">
+                                <div className="p-2.5 bg-slate-50 dark:bg-slate-800 rounded-2xl text-slate-400 group-hover/item:text-sky-500 transition-colors shrink-0">
                                   <FileText className="h-5 w-5" />
                                 </div>
-                                <div>
-                                  <div className="flex items-center gap-2 mb-0.5">
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex flex-wrap items-center gap-2 mb-1">
                                     <span className="text-xs font-black text-slate-400 uppercase tracking-widest">{formatDateTime(p.createdAt)}</span>
-                                    <span className="px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 text-[10px] font-bold">
+                                    <span className="px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 text-[10px] font-black">
                                       {p.service_name || (lang === 'ar' ? 'كشف' : 'Visit')}
                                     </span>
                                   </div>
-                                  <h5 className="font-bold text-slate-700 dark:text-slate-300">{p.diagnosis}</h5>
+                                  <h5 className="font-extrabold text-slate-800 dark:text-slate-100 max-w-full text-sm sm:text-base break-words">
+                                    {p.diagnosis || (lang === 'ar' ? 'زيارة بدون تشخيص مسجل' : 'Visit without recorded diagnosis')}
+                                  </h5>
                                 </div>
                               </div>
-                              <div className="flex items-center gap-2 self-end sm:self-center">
+                              <div className="flex flex-wrap items-center gap-2 w-full md:w-auto justify-end border-t md:border-t-0 pt-3 md:pt-0 border-slate-100 dark:border-slate-800/60 shrink-0">
                                 <Button 
                                   variant="ghost" 
                                   size="sm" 

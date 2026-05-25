@@ -29,6 +29,7 @@ export interface WaitingItem {
   appointment_id?: string;
   patient_name: string;
   patient_number: string;
+  patient_phone?: string;
   birth_date: string;
   revisit_method: string;
   createdAt: string;
@@ -190,6 +191,9 @@ const apiRequest = async (url: string, init?: RequestInit) => {
 };
 
 export const api = {
+  getDbStatus: async () => {
+    return apiRequest(`${API_BASE}/db-status`);
+  },
   login: async (username: string, password: string): Promise<{ token: string, user: User }> => {
     return apiRequest(`${API_BASE}/login`, {
       method: 'POST',

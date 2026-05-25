@@ -33,21 +33,21 @@ export default function PatientRegistration({
   const [patient, setPatient] = useState<any>({
     patient_number: '',
     name: '',
-    age_months: 0,
-    age_days: 0,
-    weight: '0',
-    temperature: '37',
-    height: '0',
-    head_circumference: '0',
+    age_months: '',
+    age_days: '',
+    weight: '',
+    temperature: '',
+    height: '',
+    head_circumference: '',
     birth_date: '',
     gender: 'boy',
     complaint: ''
   });
 
   const [ageState, setAgeState] = useState({
-    years: '0',
-    months: '0',
-    days: '0'
+    years: '',
+    months: '',
+    days: ''
   });
   
   const [existingPatientId, setExistingPatientId] = useState<string | null>(null);
@@ -108,15 +108,15 @@ export default function PatientRegistration({
         name: patientName,
         patient_phone: phone,
         birth_date: birthDate,
-        age_months: age ? age.totalMonths : 0,
-        age_days: age ? age.days : 0
+        age_months: age ? age.totalMonths : '',
+        age_days: age ? age.days : ''
       }));
 
       if (age) {
         setAgeState({ 
-          years: age.years.toString(), 
-          months: age.months.toString(), 
-          days: age.days.toString() 
+          years: age.years ? age.years.toString() : '', 
+          months: age.months ? age.months.toString() : '', 
+          days: age.days ? age.days.toString() : '' 
         });
       }
     }
@@ -128,18 +128,19 @@ export default function PatientRegistration({
         const totalMonths = data.age_months || 0;
         setPatient({
           name: data.patient_name || '',
-          age_months: totalMonths,
+          age_months: totalMonths || '',
           birth_date: data.birth_date || '',
-          weight: data.weight || 0,
-          height: data.height || 0,
-          head_circumference: data.head_circumference || 0,
+          weight: data.weight ? data.weight.toString() : '',
+          height: data.height ? data.height.toString() : '',
+          head_circumference: data.head_circumference ? data.head_circumference.toString() : '',
           gender: data.gender || 'boy',
-          complaint: data.complaint || ''
+          complaint: data.complaint || '',
+          temperature: data.temperature || ''
         });
         setAgeState({
-          years: Math.floor(totalMonths / 12).toString(),
-          months: (totalMonths % 12).toString(),
-          days: (data.age_days || 0).toString()
+          years: Math.floor(totalMonths / 12) ? Math.floor(totalMonths / 12).toString() : '',
+          months: (totalMonths % 12) ? (totalMonths % 12).toString() : '',
+          days: data.age_days ? data.age_days.toString() : ''
         });
         setDiagnosis(data.diagnosis || '');
         setSelectedMeds(data.items || []);
@@ -304,19 +305,20 @@ export default function PatientRegistration({
     setPatient({
       patient_number: existing.patient_number || '',
       name: existing.name,
-      age_months: totalMonths,
-      age_days: days,
+      age_months: totalMonths || '',
+      age_days: days || '',
       birth_date: existing.birth_date || '',
-      weight: (existing.weight ?? '').toString(),
-      height: (existing.height ?? '').toString(),
-      head_circumference: (existing.head_circumference ?? '').toString(),
+      weight: existing.weight ? existing.weight.toString() : '',
+      height: existing.height ? existing.height.toString() : '',
+      head_circumference: existing.head_circumference ? existing.head_circumference.toString() : '',
       gender: existing.gender as any,
-      complaint: existing.complaint || ''
+      complaint: existing.complaint || '',
+      temperature: existing.temperature || ''
     });
     setAgeState({
-      years: (years ?? 0).toString(),
-      months: (months ?? 0).toString(),
-      days: (days ?? 0).toString()
+      years: years ? years.toString() : '',
+      months: months ? months.toString() : '',
+      days: days ? days.toString() : ''
     });
     setExistingPatientId(existing.id!);
     setPatientSearchResults([]);
@@ -351,15 +353,17 @@ export default function PatientRegistration({
       setPatient({
         patient_number: '',
         name: '',
-        age_months: 0,
-        weight: '0',
-        height: '0',
-        head_circumference: '0',
+        age_months: '',
+        age_days: '',
+        weight: '',
+        height: '',
+        head_circumference: '',
         birth_date: '',
         gender: 'boy',
-        complaint: ''
+        complaint: '',
+        temperature: ''
       });
-      setAgeState({ years: '0', months: '0', days: '0' });
+      setAgeState({ years: '', months: '', days: '' });
       setConfirmDeletePatientId(null);
     } catch (error) {
       toast.error(lang === 'ar' ? 'فشل حذف ملف المريض' : 'Failed to delete patient file');
@@ -501,7 +505,7 @@ export default function PatientRegistration({
     }
 
     if (user.role === 'doctor') {
-      if (patient.weight <= 0) {
+      if (!patient.weight || Number(patient.weight) <= 0) {
         toast.error(lang === 'ar' ? 'يرجى إدخال الوزن' : 'Please enter weight');
         return;
       }
@@ -515,23 +519,30 @@ export default function PatientRegistration({
       }
     }
 
+    // Default temperature to 37 if not provided
+    const finalTemp = (patient.temperature && patient.temperature.toString().trim() !== '') ? patient.temperature.toString().trim() : '37';
+
+    // Prepare patient object with defaults for numbers
+    const finalPatientData = {
+      name: patient.name,
+      birth_date: patient.birth_date,
+      gender: patient.gender,
+      complaint: patient.complaint,
+      age_months: patient.age_months ? Number(patient.age_months) : 0,
+      age_days: patient.age_days ? Number(patient.age_days) : 0,
+      weight: patient.weight ? Number(patient.weight) : 0,
+      height: patient.height ? Number(patient.height) : 0,
+      head_circumference: patient.head_circumference ? Number(patient.head_circumference) : 0,
+      temperature: finalTemp
+    };
+
     try {
       setIsSubmitting(true);
       let patientId = existingPatientId;
 
       if (existingPatientId) {
         // Update existing patient record (weight/age might have changed)
-        await api.updatePatient(existingPatientId, {
-          age_months: patient.age_months,
-          age_days: patient.age_days,
-          birth_date: patient.birth_date,
-          weight: patient.weight,
-          height: patient.height,
-          head_circumference: patient.head_circumference,
-          complaint: patient.complaint,
-          gender: patient.gender,
-          temperature: patient.temperature
-        });
+        await api.updatePatient(existingPatientId, finalPatientData);
       } else {
         // Double check if name already exists exactly
         const exactMatches = await api.searchPatients(patient.name);
@@ -539,34 +550,24 @@ export default function PatientRegistration({
         
         if (exactMatch) {
           patientId = exactMatch.id!;
-          await api.updatePatient(patientId, {
-            age_months: patient.age_months,
-            age_days: patient.age_days,
-            birth_date: patient.birth_date,
-            weight: patient.weight,
-            height: patient.height,
-            head_circumference: patient.head_circumference,
-            complaint: patient.complaint,
-            gender: patient.gender,
-            temperature: patient.temperature
-          });
+          await api.updatePatient(patientId, finalPatientData);
         } else {
-          const patientRes = await api.createPatient(patient);
+          const patientRes = await api.createPatient(finalPatientData);
           if (patientRes.error) throw new Error(patientRes.error);
           patientId = patientRes.id;
         }
       }
 
       // Add to growth data if measurements are provided and significant
-      if (patientId && (Number(patient.weight) > 0 || (Number(patient.height) > 0) || (Number(patient.head_circumference) > 0))) {
+      if (patientId && (finalPatientData.weight > 0 || finalPatientData.height > 0 || finalPatientData.head_circumference > 0)) {
         await api.addGrowthData(patientId, {
-          weight: Number(patient.weight),
-          height: Number(patient.height) || 0,
-          head_circumference: Number(patient.head_circumference) || 0,
-          age_months: patient.age_months,
-          age_days: patient.age_days,
+          weight: finalPatientData.weight,
+          height: finalPatientData.height,
+          head_circumference: finalPatientData.head_circumference,
+          age_months: finalPatientData.age_months,
+          age_days: finalPatientData.age_days,
           diagnosis: diagnosis,
-          complaint: patient.complaint
+          complaint: finalPatientData.complaint
         }).catch(err => console.error("Could not save growth data automatically", err));
       }
 
@@ -581,12 +582,12 @@ export default function PatientRegistration({
       if (editPrescriptionId) {
         await api.updatePrescription(editPrescriptionId, {
           diagnosis,
-          complaint: patient.complaint,
+          complaint: finalPatientData.complaint,
           items: selectedMeds,
           service_name: selectedService?.name,
           revisit_date: revisitDate,
           revisit_method: revisitMethod,
-          temperature: patient.temperature
+          temperature: finalTemp
         });
         toast.success(lang === 'ar' ? 'تم تحديث الروشتة بنجاح' : 'Prescription updated successfully');
         onPrescriptionCreated(editPrescriptionId);
@@ -595,12 +596,12 @@ export default function PatientRegistration({
           patient_id: patientId!,
           appointment_id: initialAppointment?.id || initialWaitingItem?.appointment_id,
           diagnosis,
-          complaint: patient.complaint,
+          complaint: finalPatientData.complaint,
           items: selectedMeds,
           service_name: selectedService?.name,
           revisit_date: revisitDate,
           revisit_method: revisitMethod,
-          temperature: patient.temperature
+          temperature: finalTemp
         });
         if (presRes.error) throw new Error(presRes.error);
         
@@ -1149,7 +1150,7 @@ export default function PatientRegistration({
                             >
                               <div className="flex justify-between items-center mb-1">
                                 <span className="text-[10px] font-black text-slate-400 uppercase">
-                                  {new Date(p.createdAt || 0).toLocaleDateString(lang === 'ar' ? 'ar-EG' : 'en-US')}
+                                  {p.createdAt && !isNaN(new Date(p.createdAt).getTime()) ? new Date(p.createdAt).toLocaleDateString(lang === 'ar' ? 'ar-EG' : 'en-US') : '---'}
                                 </span>
                                 <span className="text-[10px] font-black bg-sky-100 dark:bg-sky-900/40 text-sky-600 px-2 py-0.5 rounded-full uppercase">
                                   {p.service_name || '-'}

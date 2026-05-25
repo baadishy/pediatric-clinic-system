@@ -30,6 +30,8 @@ import { ar, enUS } from 'date-fns/locale';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { translations, Language } from '../lib/translations';
+import ExportDropdown from './ExportDropdown';
+import { ExportPayload } from '../lib/exportUtils';
 
 interface WaitingRoomProps {
   user: User;
@@ -147,6 +149,66 @@ export function WaitingRoom({ user, onLogout, onCallPatient, onCallAppointment, 
     } catch (err) {
       toast.error(lang === 'ar' ? 'فشل تسجيل الحضور' : 'Check-in failed');
     }
+  };
+
+  const getWaitingRoomExportPayload = (): ExportPayload => {
+    const waitingHeaders = [
+      lang === 'ar' ? 'الترتيب' : 'No.',
+      lang === 'ar' ? 'اسم الطفل' : 'Patient Name',
+      lang === 'ar' ? 'رقم الهاتف' : 'Phone Number',
+      lang === 'ar' ? 'طريقة المتابعة' : 'Check-In Type',
+      lang === 'ar' ? 'وقت الدخول للانتظار' : 'Checked-In Time'
+    ];
+
+    const waitingRows = waitingList.map((item, idx) => [
+      idx + 1,
+      item.patient_name,
+      item.patient_phone || '-',
+      item.revisit_method || '-',
+      new Date(item.createdAt).toLocaleTimeString(lang === 'ar' ? 'ar-EG' : 'en-US', { hour: '2-digit', minute: '2-digit' })
+    ]);
+
+    const apptHeaders = [
+      lang === 'ar' ? 'الاسم' : 'Patient Name',
+      lang === 'ar' ? 'رقم الهاتف' : 'Phone Number',
+      lang === 'ar' ? 'العيادة التخصصية' : 'Clinic Specialty',
+      lang === 'ar' ? 'الخدمة' : 'Service',
+      lang === 'ar' ? 'تاريخ الموعد' : 'Date',
+      lang === 'ar' ? 'الموعد والوقت' : 'Time',
+      lang === 'ar' ? 'الحالة' : 'Status'
+    ];
+
+    const apptRows = appointments.map(item => [
+      item.patientName,
+      item.phone || '-',
+      item.clinicName || '-',
+      item.serviceName || '-',
+      item.appointmentDay,
+      item.appointmentTime,
+      item.status === 'confirmed' ? (lang === 'ar' ? 'مؤكد' : 'Confirmed') : item.status === 'cancelled' ? (lang === 'ar' ? 'ملغي' : 'Cancelled') : (lang === 'ar' ? 'قيد الانتظار' : 'Pending')
+    ]);
+
+    return {
+      title: lang === 'ar' ? 'تقرير حركة صالة الانتظار والجدولة الكلية بالعيادة' : 'Clinic Patient Flow & Appointment Directory',
+      subtitle: lang === 'ar' ? 'ملخص إحصائي كامل للحجوزات والأطفال المنتظرين باليوم' : 'Overview of current clinic waiting lines and booked calendars',
+      sections: [
+        {
+          title: lang === 'ar' ? 'قائمة المرضى الحاليين بصالة الانتظار' : 'Queue - Checked-In waiting children list',
+          table: {
+            headers: waitingHeaders,
+            rows: waitingRows
+          }
+        },
+        {
+          title: lang === 'ar' ? 'المواعيد والحجوزات المسجلة للعيادات' : 'Log of Scheduled Appointments',
+          table: {
+            headers: apptHeaders,
+            rows: apptRows
+          }
+        }
+      ],
+      filename: `clinic_queue_status`
+    };
   };
 
   const today = new Date().toISOString().split('T')[0];
@@ -363,6 +425,13 @@ export function WaitingRoom({ user, onLogout, onCallPatient, onCallAppointment, 
           </div>
           
           <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+            {(waitingList.length > 0 || appointments.length > 0) && (
+              <ExportDropdown 
+                lang={lang} 
+                getPayload={getWaitingRoomExportPayload}
+                buttonText={lang === 'ar' ? 'تصدير القائمة' : 'Export Queue'}
+              />
+            )}
             <Button variant="outline" size="sm" onClick={fetchData} disabled={refreshing} className="h-10 rounded-xl px-4 border-slate-200 dark:border-slate-800 hover:bg-white dark:hover:bg-slate-900 bg-transparent text-slate-600 font-bold">
               <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
               <span className="hidden sm:inline">{t.refresh}</span>
@@ -443,9 +512,11 @@ export function WaitingRoom({ user, onLogout, onCallPatient, onCallAppointment, 
                                   )}
                                 </div>
                                 <div className="flex flex-wrap gap-x-4 gap-y-1 text-[10px] font-bold text-slate-400 items-center uppercase tracking-wider">
-                                  <span className="flex items-center gap-1.5"><Phone className="h-3 w-3" /> {item.patient_number}</span>
+                                  {item.patient_phone && item.patient_phone.trim() !== "" && (
+                                    <span className="flex items-center gap-1.5"><Phone className="h-3 w-3" /> {item.patient_phone}</span>
+                                  )}
                                   <span className="flex items-center gap-1.5"><Activity className="h-3 w-3" /> {item.revisit_method}</span>
-                                  <span className="flex items-center gap-1.5"><Clock className="h-3 w-3" /> {formatDistanceToNow(new Date(item.createdAt), { addSuffix: true, locale: dateLocale })}</span>
+                                  <span className="flex items-center gap-1.5"><Clock className="h-3 w-3" /> {item.createdAt && !isNaN(new Date(item.createdAt).getTime()) ? formatDistanceToNow(new Date(item.createdAt), { addSuffix: true, locale: dateLocale }) : '---'}</span>
                                 </div>
                               </div>
                             </div>
@@ -588,7 +659,13 @@ export function WaitingRoom({ user, onLogout, onCallPatient, onCallAppointment, 
                                  {(t as any)[appt.status]}
                                </span>
                             </div>
-                            <div className="text-[9px] font-bold text-slate-400">{appt.appointmentTime} · {appt.clinicName}</div>
+                            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[9px] font-bold text-slate-400">
+                               <span>{appt.appointmentTime} · {appt.clinicName}</span>
+                               <span className="flex items-center gap-0.5 text-slate-500 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded text-[8px] font-extrabold font-mono">
+                                 <Phone className="h-2.5 w-2.5 text-sky-500" />
+                                 {appt.phone}
+                               </span>
+                            </div>
                          </div>
                       </div>
                       <Button variant="ghost" size="icon" onClick={() => handleOpenApptModal(appt)} className="h-7 w-7 text-slate-300 hover:text-sky-500 rounded-lg group-hover:bg-sky-50 dark:group-hover:bg-sky-950/30">

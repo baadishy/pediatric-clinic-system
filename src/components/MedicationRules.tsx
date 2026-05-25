@@ -12,6 +12,8 @@ import { Sparkles, Search, Plus, Loader2, Trash2, Pill, Syringe, Pencil } from '
 import { GoogleGenAI, Type } from "@google/genai";
 import { motion, AnimatePresence } from 'motion/react';
 import { translations, Language } from '../lib/translations';
+import ExportDropdown from './ExportDropdown';
+import { ExportPayload } from '../lib/exportUtils';
 
 export default function MedicationRules({ lang = 'ar' }: { lang?: Language }) {
   const [rules, setRules] = useState<MedicationRule[]>([]);
@@ -167,6 +169,43 @@ export default function MedicationRules({ lang = 'ar' }: { lang?: Language }) {
     (r.notes && r.notes.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
+  const getRulesExportPayload = (): ExportPayload => {
+    const headers = [
+      lang === 'ar' ? 'اسم الدواء' : 'Medication Name',
+      lang === 'ar' ? 'النوع' : 'Type',
+      lang === 'ar' ? 'الجرعة (ملجم/كجم)' : 'Dose (mg/kg)',
+      lang === 'ar' ? 'الجرعات باليوم' : 'Doses per Day',
+      lang === 'ar' ? 'التركيز (ملجم/مل)' : 'Concentration (mg/ml)',
+      lang === 'ar' ? 'المدة باليوم' : 'Duration (Days)',
+      lang === 'ar' ? 'توجيهات وملاحظات' : 'Special Instructions'
+    ];
+
+    const rows = filteredRules.map(r => [
+      r.name,
+      r.type === 'liquid' ? (lang === 'ar' ? 'دواء شراب' : 'Liquid') : (lang === 'ar' ? 'أقراص/كبسولات' : 'Pill/Tablet'),
+      r.mg_per_kg,
+      r.doses_per_day,
+      r.type === 'liquid' ? r.concentration_mg_per_ml || '-' : '-',
+      r.duration_days,
+      r.notes || '-'
+    ]);
+
+    return {
+      title: lang === 'ar' ? 'جدول ومعايير جرعات أدوية الأطفال للعيادة' : 'Pediatric Medications Dosing Directory',
+      subtitle: lang === 'ar' ? 'قائمة حساب الجرعات والمواصفات المقررة من الطبيب' : 'Pre-defined pediatric drug equations and references',
+      sections: [
+        {
+          title: lang === 'ar' ? 'قائمة الأدوية النشطة' : 'Active Drugs Directory List',
+          table: {
+            headers,
+            rows
+          }
+        }
+      ],
+      filename: `clinic_pediatric_medications`
+    };
+  };
+
   return (
     <div className="space-y-8 max-w-6xl mx-auto" dir={lang === 'ar' ? 'rtl' : 'ltr'}>
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
@@ -283,14 +322,23 @@ export default function MedicationRules({ lang = 'ar' }: { lang?: Language }) {
             <CardTitle className="text-xl">{lang === 'ar' ? 'دليل الأدوية المسجل' : 'Registered Medications'}</CardTitle>
             <CardDescription>{lang === 'ar' ? 'قائمة بجميع الأدوية وقواعد الحساب الخاصة بها' : 'List of all medications and their dosing rules'}</CardDescription>
           </div>
-          <div className="relative w-full max-w-sm">
-            <Search className={`absolute ${lang === 'ar' ? 'right-3' : 'left-3'} top-2.5 h-4 w-4 text-muted-foreground`} />
-            <Input
-              placeholder={lang === 'ar' ? "ابحث في قائمة الأدوية..." : "Search medications..."}
-              className={`${lang === 'ar' ? 'pr-9' : 'pl-9'} bg-slate-50 dark:bg-slate-800 border-none`}
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
+            {filteredRules.length > 0 && (
+              <ExportDropdown 
+                lang={lang} 
+                getPayload={getRulesExportPayload}
+                buttonText={lang === 'ar' ? 'تصدير الدليل' : 'Export Guidelines'}
+              />
+            )}
+            <div className="relative w-full sm:w-64">
+              <Search className={`absolute ${lang === 'ar' ? 'right-3' : 'left-3'} top-3.5 h-4 w-4 text-muted-foreground`} />
+              <Input
+                placeholder={lang === 'ar' ? "ابحث في قائمة الأدوية..." : "Search medications..."}
+                className={`${lang === 'ar' ? 'pr-9' : 'pl-9'} bg-slate-50 dark:bg-slate-800 border-none h-11`}
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </div>
           </div>
         </CardHeader>
         <CardContent>
