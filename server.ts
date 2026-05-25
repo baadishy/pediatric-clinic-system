@@ -6,91 +6,8 @@ import Database from "better-sqlite3";
 import dotenv from "dotenv";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
+import crypto from "crypto";
 import { MongoClient, ObjectId as MongoObjectId } from "mongodb";
-
-// Safe loading of native crypto since it can fail on unpatched Win7/8 OS environments due to OpenSSL/DLL requirements
-let nodeCrypto: any = null;
-try {
-  nodeCrypto = require("crypto");
-} catch (e) {
-  console.warn("[Platform WARNING] Native 'crypto' module failed to load. A high-performance pure JS fallback will be automatically used.", e);
-}
-
-// Simple pure JS SHA-1 fallback for environments where Node's native crypto (OpenSSL) is unavailable
-function pureJsSha1(str: string): string {
-  function rotateLeft(n: number, s: number): number {
-    return (n << s) | (n >>> (32 - s));
-  }
-  
-  const buf = Buffer.from(str, 'utf8');
-  const len = buf.length;
-  const words: number[] = [];
-  for (let i = 0; i < len; i++) {
-    words[i >>> 2] |= buf[i] << (24 - (i % 4) * 8);
-  }
-  
-  words[len >>> 2] |= 0x80 << (24 - (len % 4) * 8);
-  const maxWords = ((len + 8) >>> 6) * 16 + 14;
-  while (words.length < maxWords) words.push(0);
-  words.push(len * 8);
-  
-  let h0 = 0x67452301;
-  let h1 = 0xEFCDAB89;
-  let h2 = 0x98BADCFE;
-  let h3 = 0x10325476;
-  let h4 = 0xC3D2E1F0;
-  
-  for (let i = 0; i < words.length; i += 16) {
-    const w: number[] = [];
-    for (let j = 0; j < 16; j++) w[j] = words[i + j] || 0;
-    for (let j = 16; j < 80; j++) {
-      w[j] = rotateLeft(w[j-3] ^ w[j-8] ^ w[j-14] ^ w[j-16], 1);
-    }
-    
-    let a = h0;
-    let b = h1;
-    let c = h2;
-    let d = h3;
-    let e = h4;
-    
-    for (let j = 0; j < 80; j++) {
-      let f = 0;
-      let k = 0;
-      if (j < 20) {
-        f = (b & c) | (~b & d);
-        k = 0x5A827999;
-      } else if (j < 40) {
-        f = b ^ c ^ d;
-        k = 0x6ED9EBA1;
-      } else if (j < 60) {
-        f = (b & c) | (b & d) | (c & d);
-        k = 0x8F1BBCDC;
-      } else {
-        f = b ^ c ^ d;
-        k = 0xCA62C1D6;
-      }
-      
-      const temp = (rotateLeft(a, 5) + f + e + k + w[j]) | 0;
-      e = d;
-      d = c;
-      c = rotateLeft(b, 30);
-      b = a;
-      a = temp;
-    }
-    
-    h0 = (h0 + a) | 0;
-    h1 = (h1 + b) | 0;
-    h2 = (h2 + c) | 0;
-    h3 = (h3 + d) | 0;
-    h4 = (h4 + e) | 0;
-  }
-  
-  return [h0, h1, h2, h3, h4].map(h => {
-    const s = (h >>> 0).toString(16);
-    return "00000000".substring(s.length) + s;
-  }).join("");
-}
-
 
 // 1. Initial standard dotenv discovery (loads from process.cwd())
 dotenv.config();
@@ -123,10 +40,10 @@ try {
   console.error("Non-fatal issue checking for Electron-specific .env paths:", envCheckErr);
 }
 
-const JWT_SECRET = (process.env.JWT_SECRET || "pediatric_secret_777").trim();
+const JWT_SECRET = process.env.JWT_SECRET || "pediatric_secret_777";
 
-const MONGODB_URI = process.env.MONGODB_URI ? process.env.MONGODB_URI.trim() : undefined;
-let useMongo = !!MONGODB_URI;
+const MONGODB_URI = process.env.MONGODB_URI;
+const useMongo = !!MONGODB_URI;
 
 const dbStatus = {
   type: "sqlite",
@@ -734,8 +651,8 @@ async function initDB() {
     // Seed users
     const userCount = await usersColl.countDocuments();
     if (userCount === 0) {
-      const doctorPass = await bcrypt.hash((process.env.DOCTOR_PASSWORD || "doctor123").trim(), 10);
-      const assistantPass = await bcrypt.hash((process.env.ASSISTANT_PASSWORD || "assistant123").trim(), 10);
+      const doctorPass = await bcrypt.hash(process.env.DOCTOR_PASSWORD || "doctor123", 10);
+      const assistantPass = await bcrypt.hash(process.env.ASSISTANT_PASSWORD || "assistant123", 10);
       
       await usersColl.insertMany([
         { username: "doctor", password: doctorPass, role: "doctor", name: "Dr. Mina" },
@@ -770,21 +687,12 @@ async function initDB() {
 
   } catch (error) {
     console.error("Database initialization failed:", error);
-    let errMsg = "Unknown database error";
-    if (error instanceof Error) {
-      errMsg = `${error.name}: ${error.message}`;
-    } else if (typeof error === 'object' && error !== null) {
-      errMsg = (error as any).message || (error as any).errmsg || JSON.stringify(error);
-    } else {
-      errMsg = String(error);
-    }
-    dbStatus.error = errMsg;
+    dbStatus.error = error instanceof Error ? error.message : String(error);
     dbStatus.connected = false;
     dbStatus.type = "sqlite";
     if (useMongo) {
       console.log("Attempting automatic fallback to SQLite due to Atlas connection error...");
       mongoDb = null; // unset mongoDb to force SQLite collections
-      useMongo = false; // Disable mongo to prevent infinite loop!
       await initDB(); // re-initialize SQLite DB safely
     }
   }
@@ -1357,16 +1265,10 @@ app.post("/api/upload-cloudinary", authenticateToken, authorize(['doctor']), asy
     
     // Cloudinary signature order: sorted alphabetically
     const signatureStr = `folder=${folder}&timestamp=${timestamp}${apiSecret}`;
-    let signature: string;
-    if (nodeCrypto) {
-      signature = nodeCrypto
-        .createHash("sha1")
-        .update(signatureStr)
-        .digest("hex");
-    } else {
-      console.log("[Fallback] Generating secure-push signature using Pure JS SHA-1 engine...");
-      signature = pureJsSha1(signatureStr);
-    }
+    const signature = crypto
+      .createHash("sha1")
+      .update(signatureStr)
+      .digest("hex");
 
     const response = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/upload`, {
       method: "POST",

@@ -16,8 +16,8 @@ echo "Starting Clinic Database & Backend Server..."
 echo "The application is ready! Your browser will open shortly..."
 echo
 
-# Start server in background with explicit PORT
-PORT=3000 node dist/server.cjs &
+# Start server in background
+node dist/server.cjs &
 SERVER_PID=$!
 
 # Wait 2 seconds for server to start

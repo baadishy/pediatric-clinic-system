@@ -484,16 +484,12 @@ export function WaitingRoom({ user, onLogout, onCallPatient, onCallAppointment, 
                 </div>
               ) : (
                 <div className="grid gap-4">
-                  <AnimatePresence mode="popLayout">
-                    {waitingList.map((item, index) => (
-                      <motion.div
-                        key={item.id}
-                        layout
-                        initial={{ opacity: 0, y: 20, scale: 0.95 }}
-                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                        exit={{ opacity: 0, scale: 0.9 }}
-                      >
-                        <Card className="hover:shadow-2xl hover:shadow-sky-500/5 transition-all duration-300 border-none bg-white dark:bg-slate-900 overflow-hidden relative group">
+                  {waitingList.map((item, index) => (
+                    <div
+                      key={item.id}
+                      className="animate-fade-in"
+                    >
+                      <Card className="hover:shadow-2xl hover:shadow-sky-500/5 transition-all duration-300 border-none bg-white dark:bg-slate-900 overflow-hidden relative group">
                           <div className={`absolute ${lang === 'ar' ? 'right-0' : 'left-0'} top-0 bottom-0 w-1 bg-sky-500 transition-all`} />
                           <CardContent className="p-4 sm:p-5 flex flex-col sm:flex-row justify-between items-center gap-4">
                             <div className="flex items-center gap-4 w-full">
@@ -540,9 +536,8 @@ export function WaitingRoom({ user, onLogout, onCallPatient, onCallAppointment, 
                             )}
                           </CardContent>
                         </Card>
-                      </motion.div>
+                      </div>
                     ))}
-                  </AnimatePresence>
                 </div>
               )}
             </div>
